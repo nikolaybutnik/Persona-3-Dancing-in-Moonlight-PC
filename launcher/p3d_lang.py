@@ -976,6 +976,38 @@ EXTRA = {
         'Relative': 'Relativo',
         'Absolute': 'Absoluto',
         'Grab': 'Agarrar',
+        # The PKG rows (the .pkg unpacker, added after the KEYS tables were written).
+        'PKG files': 'Arquivos PKG',
+        'Game PKG (optional)': 'PKG do jogo (opcional)',
+        'Choose the game .pkg (CUSA12636, or an update of it)': 'Escolha o .pkg do jogo (CUSA12636, ou uma atualização dele)',
+        'A PS4 .pkg of the game: it is unpacked into a folder of its own (the game in Image0/, the system files in the Sc0/ beside it) and the game folder is set to it. An interrupted unpack resumes where it left off.':
+            'Um .pkg de PS4 do jogo: é descompactado numa pasta própria (o jogo em Image0/, os arquivos de sistema em Sc0/ ao lado) e a pasta do jogo é definida para ela. Uma descompactação interrompida retoma de onde parou.',
+        'DLC PKG (optional)': 'PKG de DLC (opcional)',
+        'Choose one or more DLC .pkg files (an ADDCONT add-on of the game)': 'Escolha um ou mais .pkg de DLC (um add-on ADDCONT do jogo)',
+        'Unpack… installs every selected package into the DLC folder — the dlc folder next to the launcher, or the one from the "DLC folder (optional)" row when set — each as its own ADDCONT add-on (already-unpacked ones are skipped, a wrong package is named and the rest still go); the add-ons are mounted at Play.':
+            'Descompactar… instala cada pacote selecionado na pasta de DLC — a pasta dlc ao lado do launcher, ou a da linha "Pasta de DLC (opcional)" quando definida — cada um como seu próprio add-on ADDCONT (os já descompactados são pulados, um pacote errado é nomeado e os demais seguem); os add-ons são montados no Play.',
+        'Unpack…': 'Descompactar…',
+        'Choose .pkg files': 'Escolher arquivos .pkg',
+        'Choose a folder of .pkg files': 'Escolher uma pasta de arquivos .pkg',
+        'No .pkg files in that folder.': 'Nenhum arquivo .pkg nessa pasta.',
+        'Add files…': 'Adicionar arquivos…',
+        'Add a folder…': 'Adicionar uma pasta…',
+        'Remove': 'Remover',
+        'OK': 'OK',
+        'This package is "{}" ({}), not Persona 3: Dancing in Moonlight (CUSA12636).': 'Este pacote é "{}" ({}), não Persona 3: Dancing in Moonlight (CUSA12636).',
+        'This package is not a DLC (add-on) of the game: its param.sfo has no ADDCONT content id.': 'Este pacote não é um DLC (add-on) do jogo: seu param.sfo não tem um content id ADDCONT.',
+        'This package has no ADDCONT label in its param.sfo; it cannot be unpacked as a DLC.': 'Este pacote não tem um rótulo ADDCONT no param.sfo; não pode ser descompactado como DLC.',
+        'Wait for the other package to finish unpacking.': 'Aguarde o outro pacote terminar de descompactar.',
+        'Unpacked: {} files, {} already present.': 'Descompactado: {} arquivos, {} já existiam.',
+        'Press Play: the system files in the Sc0 folder beside the game will be offered for the copy into sce_sys.': 'Pressione Play: os arquivos de sistema na pasta Sc0 ao lado do jogo serão oferecidos para copiar em sce_sys.',
+        'Into: {}': 'Em: {}',
+        'Not unpacked: {}': 'Não descompactado: {}',
+        'Unpacking the package failed: {}': 'Falha ao descompactar o pacote: {}',
+        'Choose the .pkg file first.': 'Escolha o arquivo .pkg primeiro.',
+        'The package could not be read: {}': 'Não foi possível ler o pacote: {}',
+        'Choose where to unpack the game': 'Escolher onde descompactar o jogo',
+        'The file is missing or is not a .pkg.': 'O arquivo não existe ou não é um .pkg.',
+        'Choose the DLC folder': 'Escolher a pasta de DLC',
     },
     'es': {
         'Show Discord Rich Presence': 'Mostrar Discord Rich Presence',
@@ -1534,6 +1566,49 @@ EXTRA['pt'].update({
         'atribuído. Aplicado ao iniciar o jogo.',
     'Fast screen effects': 'Efeitos de tela rápidos',
     'The game itself runs at 60 FPS, the highest it can go.': 'O jogo roda a 60 FPS, o máximo que alcança.',
+})
+# The PKG rows (the .pkg unpacker, added after the KEYS tables were written).
+EXTRA['es'].update({
+    'PKG files': 'Archivos PKG',
+    'Game PKG (optional)': 'PKG del juego (opcional)',
+    'Choose the game .pkg (CUSA12636, or an update of it)': 'Elige el .pkg del juego (CUSA12636, o una actualización de él)',
+    'A PS4 .pkg of the game: it is unpacked into a folder of its own (the game in Image0/, the system files in the Sc0/ beside it) and the game folder is set to it. An interrupted unpack resumes where it left off.':
+        'Un .pkg de PS4 del juego: se descomprime en una carpeta propia (el juego en Image0/, los archivos de '
+        'sistema en Sc0/ junto a él) y la carpeta del juego se fija en ella. Una descompresión interrumpida '
+        'retoma donde se quedó.',
+    'DLC PKG (optional)': 'PKG de DLC (opcional)',
+    'Choose one or more DLC .pkg files (an ADDCONT add-on of the game)': 'Elige uno o más .pkg de DLC (un add-on ADDCONT del juego)',
+    'Unpack… installs every selected package into the DLC folder — the dlc folder next to the launcher, or the one from the "DLC folder (optional)" row when set — each as its own ADDCONT add-on (already-unpacked ones are skipped, a wrong package is named and the rest still go); the add-ons are mounted at Play.':
+        'Descomprimir… instala cada paquete elegido en la carpeta de DLC — la carpeta dlc junto al lanzador, o '
+        'la de la línea "Carpeta de DLC (opcional)" cuando esté fijada — cada uno como su propio add-on ADDCONT '
+        '(los ya descomprimidos se omiten, un paquete equivocado se nombra y el resto sigue); los add-ons se '
+        'montan al pulsar Play.',
+    'Unpack…': 'Descomprimir…',
+    'Choose .pkg files': 'Elegir archivos .pkg',
+    'Choose a folder of .pkg files': 'Elegir una carpeta de archivos .pkg',
+    'No .pkg files in that folder.': 'No hay archivos .pkg en esa carpeta.',
+    'Add files…': 'Añadir archivos…',
+    'Add a folder…': 'Añadir una carpeta…',
+    'Remove': 'Quitar',
+    'OK': 'Aceptar',
+    'This package is "{}" ({}), not Persona 3: Dancing in Moonlight (CUSA12636).':
+        'Este paquete es "{}" ({}), no Persona 3: Dancing in Moonlight (CUSA12636).',
+    'This package is not a DLC (add-on) of the game: its param.sfo has no ADDCONT content id.':
+        'Este paquete no es un DLC (add-on) del juego: su param.sfo no tiene un content id ADDCONT.',
+    'This package has no ADDCONT label in its param.sfo; it cannot be unpacked as a DLC.':
+        'Este paquete no tiene etiqueta ADDCONT en su param.sfo; no se puede descomprimir como DLC.',
+    'Wait for the other package to finish unpacking.': 'Espera a que el otro paquete termine de descomprimirse.',
+    'Unpacked: {} files, {} already present.': 'Descomprimido: {} archivos, {} ya presentes.',
+    'Press Play: the system files in the Sc0 folder beside the game will be offered for the copy into sce_sys.':
+        'Pulsa Play: los archivos de sistema de la carpeta Sc0 junto al juego se ofrecerán para copiarlos en sce_sys.',
+    'Into: {}': 'En: {}',
+    'Not unpacked: {}': 'No descomprimidos: {}',
+    'Unpacking the package failed: {}': 'Falló al descomprimir el paquete: {}',
+    'Choose the .pkg file first.': 'Elige primero el archivo .pkg.',
+    'The package could not be read: {}': 'No se pudo leer el paquete: {}',
+    'Choose where to unpack the game': 'Elegir dónde descomprimir el juego',
+    'The file is missing or is not a .pkg.': 'El archivo no existe o no es un .pkg.',
+    'Choose the DLC folder': 'Elegir la carpeta de DLC',
 })
 
 

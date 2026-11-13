@@ -46,9 +46,10 @@ PORT_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).r
 sys.path.insert(0, str(PORT_DIR / 'scripts'))
 import graphics_options  # noqa: E402  (scripts/)
 import save_backup  # noqa: E402  (scripts/)
+import p3d_pkg  # noqa: E402  (launcher/; the .pkg unpacker)
 import steam_shortcut  # noqa: E402  (scripts/)
 import trophies  # noqa: E402  (scripts/)
-from patches import game_profile, game_sfo  # noqa: E402  (scripts/)
+from patches import game_sfo  # noqa: E402  (scripts/)
 from prepare import load_sfo  # noqa: E402  (scripts/)
 DATA_DIR = Path(os.environ.get('P3D_DATA_DIR', PORT_DIR))
 CONFIG_DIR = (Path(os.environ.get('APPDATA', Path.home())) if WINDOWS else
@@ -434,7 +435,9 @@ PAGES = ('home', 'graphics', 'performance', 'game', 'controls', 'mods', 'trophie
 PAGE_REFRESH = {'home': ('refresh_status',), 'game': ('refresh_game_patches',), 'mods': ('refresh_lists',),
                 'trophies': ('refresh_trophies',)}
 UI_SCALES = [('auto', ('Auto',)), ('1', ('1x',)), ('2', ('2x',))]
-APP_DEFAULTS = {'ui_language': '', 'ui_scale': 'auto', 'game_dir': os.environ.get('P3D_GAME_DIR', str(default_game_dir()) if WINDOWS else ''), 'update_dir': '', 'dlc_dir': '', 'experimental_upscaler': False,
+# The title this launcher unpacks .pkg files for (scripts/game_id.py's KNOWN_TITLE_IDS).
+TITLE_IDS = ('CUSA12636',)
+APP_DEFAULTS = {'ui_language': '', 'ui_scale': 'auto', 'game_dir': os.environ.get('P3D_GAME_DIR', str(default_game_dir()) if WINDOWS else ''), 'update_dir': '', 'dlc_dir': '', 'game_pkg': '', 'dlc_pkg': '', 'experimental_upscaler': False,
                 'video_backend': 'auto', 'gamemode': False, 'mangohud': False, 'desktop_integration': True, 'user_dir': '',
                 'mods_dir': '', 'mods_enabled': True, 'patches_dir': '', 'language': '1',
                 'hdr': False, 'draw_pipe': '', 'readbacks': '', 'no_msaa': '', 'stream_memory': 'cached',
@@ -852,11 +855,12 @@ def same_folder(a, b):
 def system_files_beside(folder, reference=None, base=None):
     """PKG extractors write the system files (param.sfo, icon0.png, pic1.png, trophy/) to Sc0/
     beside the game files (Image0/), while the port reads them from the folder's sce_sys/: the
-    Sc0 folder beside `folder` holding a Persona 3: Dancing in Moonlight param.sfo (patches.game_profile), while
+    Sc0 folder beside `folder` holding a Persona 3: Dancing in Moonlight param.sfo, while
     `folder` has none worth keeping (an unreadable one is a different problem). For an update
     folder the title must be that of `reference` (the base game's param.sfo values); an Sc0
     beside the base game itself (`base`) is the base game's own unless the base game's param.sfo
-    says another version."""
+    says another version. With no built-in patch profiles (patches.GAMES is empty for this game)
+    the Sc0 is recognized by the title id it belongs to (TITLE_IDS)."""
     folder = Path(os.path.abspath(folder or '.'))
     if sfo_state(folder / 'sce_sys/param.sfo') in ('ok', 'unreadable') or folder.parent == folder:
         return None
@@ -872,8 +876,7 @@ def system_files_beside(folder, reference=None, base=None):
         values = load_sfo(sibling / 'param.sfo')
     except (OSError, ValueError):
         return None
-    title = values.get('TITLE')
-    if not game_profile(values.get('TITLE_ID'), title if isinstance(title, str) else None):
+    if values.get('TITLE_ID') not in TITLE_IDS:
         return None
     if reference is not None and values.get('TITLE_ID') != reference.get('TITLE_ID'):
         return None
@@ -1834,6 +1837,19 @@ class Launcher:
                     _('Choose the saves folder', 'Выберите папку сохранений'),
                     _('Empty: {} (shader caches are kept there too).',
                       'Пусто: {} (там же кэш шейдеров).').format(DATA_DIR / 'user'), on_change=self.refresh_status)
+        self.section(f, _('PKG files'), top=20)
+        self.pkg_row(f, 'game_pkg', _('Game PKG (optional)'),
+                     _('Choose the game .pkg (CUSA12636, or an update of it)'),
+                     _('A PS4 .pkg of the game: it is unpacked into a folder of its own (the game in Image0/, '
+                       'the system files in the Sc0/ beside it) and the game folder is set to it. An interrupted '
+                       'unpack resumes where it left off.'), self.extract_game_pkg)
+        self.pkg_row(f, 'dlc_pkg', _('DLC PKG (optional)'),
+                     _('Choose one or more DLC .pkg files (an ADDCONT add-on of the game)'),
+                     _('Unpack… installs every selected package into the DLC folder — the dlc folder next to '
+                       'the launcher, or the one from the "DLC folder (optional)" row when set — each as its '
+                       'own ADDCONT add-on (already-unpacked ones are skipped, a wrong package is named and the '
+                       'rest still go); the add-ons are mounted at Play.'),
+                     self.extract_dlc_pkg, multi=True)
         self.section(f, _('Saves'))
         self.build_save_backups(f)
         self.section(f, _('Language'))
@@ -3023,6 +3039,308 @@ class Launcher:
     def watch_changes(self):
         self.refresh_save_button()
         self.root.after(500, self.watch_changes)
+
+    # ---- PKG files ---------------------------------------------------------------------------
+    def pkg_row(self, parent, key, title, prompt, hint, on_unpack, multi=False):
+        """A .pkg row (the file, a progress bar and the unpack button), shaped like folder().
+        With `multi`, Browse… opens the multi-file chooser and the row holds a ';'-joined
+        list of .pkg files that Unpack… unpacks in one go (the DLC row)."""
+        ttk = self.ttk
+        var = self.var(key, 'app')
+        holder = ttk.Frame(parent)
+        ttk.Entry(holder, textvariable=var, width=36).pack(side='left')
+
+        def browse():
+            if multi:
+                paths = self.choose_pkg_files(prompt, var.get())
+                if paths is not None:
+                    var.set(';'.join(str(p) for p in paths))
+            else:
+                chosen = self.filedialog.askopenfilename(title=prompt, initialdir=var.get() or str(PORT_DIR),
+                                                          filetypes=[('PS4 package', '*.pkg'), ('All files', '*.*')])
+                if chosen:
+                    var.set(str(Path(chosen)))
+        ttk.Button(holder, text=_('Browse…', 'Обзор…'), command=browse).pack(side='left', padx=self.px((6, 0)))
+        # The empty bar (and its label) read like a dead button: they appear only while
+        # an unpack runs, and are hidden again when it fails.
+        bar = ttk.Progressbar(holder, length=self.px(80), maximum=100)
+        bar.pack(side='left', padx=self.px((6, 0)))
+        percent = ttk.Label(holder, text='', width=6, anchor='e')
+        percent.pack(side='left', padx=self.px((0, 6)))
+        bar.pack_forget()
+        percent.pack_forget()
+        button = ttk.Button(holder, text=_('Unpack…', 'Извлечь…'),
+                            command=lambda: on_unpack(var, bar, percent, button))
+        button.pack(side='left')
+        return self.row(parent, title, holder, hint)
+
+    def choose_pkg_files(self, title, joined=''):
+        """The multi-.pkg chooser (the DLC row's Browse…): pick .pkg files one by one or
+        take a whole folder of them; the earlier selection (a ';'-joined list) comes back.
+        Returns the paths, or None when the dialog is cancelled."""
+        tk = self.tk
+        top = tk.Toplevel(self.root)
+        top.title(title)
+        top.transient(self.root)
+        paths = [p.strip() for p in joined.split(';') if p.strip()]
+
+        def redraw():
+            listbox.delete(0, 'end')
+            for p in paths:
+                listbox.insert('end', p)
+
+        listbox = tk.Listbox(top, selectmode='extended', height=10, width=72, exportselection=False)
+        listbox.pack(fill='both', expand=True, padx=10, pady=(10, 0))
+        redraw()
+
+        def add(*names):
+            for name in names:
+                name = str(Path(name))
+                if name not in paths:
+                    paths.append(name)
+            redraw()
+
+        def add_files():
+            chosen = self.filedialog.askopenfilename(title=_('Choose .pkg files'),
+                                                      initialdir=paths[0] if paths else str(PORT_DIR),
+                                                      filetypes=[('PS4 package', '*.pkg'), ('All files', '*.*')])
+            if chosen:
+                add(chosen)
+
+        def add_folder():
+            folder = self.filedialog.askdirectory(title=_('Choose a folder of .pkg files'),
+                                                  initialdir=paths[0] if paths else str(PORT_DIR))
+            if not folder:
+                return
+            found = sorted(str(p) for p in Path(folder).glob('*.pkg'))
+            if not found:
+                self.messagebox.showinfo(APP_NAME, _('No .pkg files in that folder.'))
+                return
+            add(*found)
+
+        def remove():
+            for i in reversed(listbox.curselection()):
+                del paths[i]
+            redraw()
+
+        buttons = tk.Frame(top)
+        buttons.pack(fill='x', padx=10, pady=6)
+        tk.Button(buttons, text=_('Add files…'), command=add_files).pack(side='left')
+        tk.Button(buttons, text=_('Add a folder…'), command=add_folder).pack(side='left', padx=(6, 0))
+        tk.Button(buttons, text=_('Remove'), command=remove).pack(side='left', padx=(6, 0))
+
+        result = {'paths': None}
+
+        def ok():
+            result['paths'] = list(paths)
+            top.destroy()
+
+        def cancel():
+            top.destroy()
+
+        row = tk.Frame(top)
+        row.pack(fill='x', padx=10, pady=(0, 10))
+        tk.Button(row, text=_('OK'), command=ok).pack(side='right')
+        tk.Button(row, text=_('Cancel'), command=cancel).pack(side='right', padx=(0, 6))
+        top.wait_window(top)  # until OK (the paths) or Cancel (None)
+        return result['paths']
+
+    def pkg_sfo(self, pkg_path):
+        """The param.sfo values of a .pkg (raises p3d_pkg.PkgError or OSError when it cannot be read)."""
+        with p3d_pkg.Pkg(str(pkg_path)) as pkg:
+            return pkg.sfo()
+
+    def check_pkg_title(self, pkg_path, add_on=False):
+        """The param.sfo of a .pkg this launcher may unpack: of the game's title (CUSA12636)
+        and, for a DLC, an ADDCONT add-on of it with a 16-character label. ValueError with the
+        player-facing text when it is not."""
+        values = self.pkg_sfo(pkg_path)
+        title_id = values.get('TITLE_ID')
+        if title_id not in TITLE_IDS:
+            raise ValueError(_('This package is "{}" ({}), not Persona 3: Dancing in Moonlight (CUSA12636).')
+                             .format(values.get('TITLE', '?'), title_id))
+        if add_on:
+            if values.get('CATEGORY') != 'ac':
+                raise ValueError(_('This package is not a DLC (add-on) of the game: its param.sfo '
+                                   'has no ADDCONT content id.'))
+            label = (values.get('CONTENT_ID') or '').rsplit('-', 1)[-1]
+            if len(label) != 16 or not label.startswith('ADDCONT'):
+                raise ValueError(_('This package has no ADDCONT label in its param.sfo; it cannot be '
+                                   'unpacked as a DLC.'))
+        return values
+
+    def unpack_progress(self, bar, percent, hint=None):
+        """A progress callback for p3d_pkg.extract that keeps the row's widgets current
+        (a helper thread posts them for the Tk thread). The bar is hidden at rest (an
+        empty one reads like a dead button), so the first event shows it; `hint` is
+        shown in the 'keys' phase (the file being unpacked, when several run in turn)."""
+        def show():
+            if not bar.winfo_ismapped():
+                bar.pack(side='left', padx=self.px((6, 0)))
+                percent.pack(side='left', padx=self.px((0, 6)))
+
+        def progress(p):
+            self.ui_calls.put(show)
+            if p.phase == 'keys':
+                self.ui_calls.put(lambda: (bar.configure(value=0), percent.configure(text=hint or '…')))
+                return
+            value = p.done * 100 // p.total if p.total else 0
+            self.ui_calls.put(lambda: (bar.configure(value=value), percent.configure(text='{}%'.format(value))))
+        return progress
+
+    def run_unpack(self, bar, button, work, on_done):
+        """A .pkg unpack off the Tk thread (a 5 GiB game would freeze the window): `work()` runs
+        on the helper thread and `on_done(error, written, skipped)` comes back to the Tk thread.
+        Only one unpack at a time (two progress bars would lie)."""
+        if self.process or getattr(self, 'unpacking_pkg', False):
+            self.messagebox.showinfo(APP_NAME, _('Wait for the other package to finish unpacking.',
+                                                 'Дождитесь, пока другой пакет распакуется.'))
+            return
+        self.unpacking_pkg = True
+        button.configure(state='disabled')
+
+        def run():
+            error = None
+            written = skipped = 0
+            try:
+                written, skipped = work()
+            except (OSError, p3d_pkg.PkgError) as failure:
+                error = failure
+            self.ui_calls.put(lambda: on_done(error, written, skipped))
+        threading.Thread(target=run, daemon=True).start()
+
+    def unpack_finished(self, bar, percent, button, error, written, skipped, game=False, failures=None,
+                        into=None):
+        """The unpack's end (the Tk thread): the widgets reset and the result shows.
+        `failures` (the DLC row): packages refused before the unpack started, named one
+        by one; they turn the message into an error, even when the rest unpacked.
+        `into`: the destination folder, shown, so it is never a mystery where things went."""
+        self.unpacking_pkg = False
+        button.configure(state='normal')
+        if error is None:
+            bar.configure(value=100)
+            text = _('Unpacked: {} files, {} already present.', 'Распаковано: {} файлов, {} уже было.').format(
+                written, skipped)
+            if game:
+                text += '\n' + _('Press Play: the system files in the Sc0 folder beside the game will be '
+                                 'offered for the copy into sce_sys.',
+                                 'Нажмите Play: системные файлы из папки Sc0 рядом с игрой будут предложены '
+                                 'для копирования в sce_sys.')
+            if into:
+                text += '\n' + _('Into: {}').format(into)
+            if failures:
+                text += '\n' + _('Not unpacked: {}').format(
+                    '; '.join(f'{name} ({reason})' for name, reason in failures))
+                self.messagebox.showerror(APP_NAME, text)
+            else:
+                self.messagebox.showinfo(APP_NAME, text)
+        else:
+            bar.configure(value=0)
+            if bar.winfo_ismapped():
+                bar.pack_forget()
+                percent.pack_forget()
+            self.messagebox.showerror(APP_NAME, _('Unpacking the package failed: {}').format(error))
+
+    def extract_game_pkg(self, var, bar, percent, button):
+        """Unpack the chosen game .pkg into a folder of its own (Image0/ + the Sc0/ beside it)
+        and set the game folder to the unpacked game; an interrupted unpack resumes where it
+        left off. The system files of the Sc0/ are offered into sce_sys at Play time
+        (offer_system_files)."""
+        pkg_path = Path(var.get() or '')
+        if not pkg_path.is_file():
+            self.messagebox.showerror(APP_NAME, _('Choose the .pkg file first.',
+                                                 'Сначала выберите файл .pkg.'))
+            return
+        try:
+            self.check_pkg_title(pkg_path)
+        except (OSError, ValueError, p3d_pkg.PkgError) as error:
+            self.messagebox.showerror(APP_NAME, _('The package could not be read: {}').format(error))
+            return
+        dest = Path(self.filedialog.askdirectory(title=_('Choose where to unpack the game'),
+                                                 initialdir=pkg_path.parent or str(PORT_DIR)))
+        if not dest:
+            return
+
+        def work():
+            with p3d_pkg.Pkg(str(pkg_path)) as pkg:
+                return p3d_pkg.extract(pkg, dest, on_progress=self.unpack_progress(bar, percent), resume=True)
+
+        def on_done(error, written, skipped):
+            self.unpack_finished(bar, percent, button, error, written, skipped, game=True,
+                                 into=str(dest / 'Image0'))
+            if error is None:
+                self.var('game_dir', 'app').set(str(dest / 'Image0'))  # the game row's trace shows the game
+        self.run_unpack(bar, button, work, on_done)
+
+    def extract_dlc_pkg(self, var, bar, percent, button):
+        """Unpack every selected DLC .pkg (the row's Browse… picks files or a folder of them;
+        the row holds a ';'-joined list) into the DLC folder: each becomes its own ADDCONT
+        folder (named by the add-on's content id) with the add-on's files and its param.sfo,
+        where find_addons (scripts/content_profile.py) looks. A bad package is named and the
+        rest still unpack; add-ons already unpacked are skipped, so picking the same files
+        twice is harmless. The add-ons mount themselves at Play (they are all in the folder)."""
+        pkg_paths = [Path(p.strip()) for p in (var.get() or '').split(';') if p.strip()]
+        if not pkg_paths:
+            self.messagebox.showerror(APP_NAME, _('Choose the .pkg file first.',
+                                                 'Сначала выберите файл .pkg.'))
+            return
+        # The title guard runs on the Tk thread, one package at a time, so a wrong file is
+        # named (with its own reason) before anything is written.
+        labels = {}
+        failures = []
+        for pkg_path in pkg_paths:
+            if not pkg_path.is_file():
+                failures.append((pkg_path.name, _('The file is missing or is not a .pkg.')))
+                continue
+            try:
+                values = self.check_pkg_title(pkg_path, add_on=True)
+                labels[pkg_path] = values['CONTENT_ID'].rsplit('-', 1)[-1]
+            except (OSError, ValueError, p3d_pkg.PkgError) as error:
+                failures.append((pkg_path.name, str(error)))
+        good = [p for p in pkg_paths if p in labels]
+        if not good:
+            self.messagebox.showerror(APP_NAME, _('Not unpacked: {}').format(
+                '; '.join(f'{name} ({reason})' for name, reason in failures)))
+            return
+        # The destination: the stored DLC folder; when unset, the port's own dlc folder (the
+        # first of the folders run.py looks for at Play) — the packages never unpack into a
+        # remembered, arbitrary folder. Only a stored folder that no longer exists asks again.
+        stored = self.var('dlc_dir', 'app').get() or ''
+        if stored:
+            dlc_dir = Path(stored)
+            if not dlc_dir.is_dir():
+                dlc_dir = Path(self.filedialog.askdirectory(
+                    title=_('Choose the DLC folder'), initialdir=str(dlc_dir.parent or PORT_DIR)))
+                if not dlc_dir:
+                    return
+        else:
+            dlc_dir = DATA_DIR / 'dlc'
+        self.var('dlc_dir', 'app').set(str(dlc_dir))
+
+        def work():
+            written = skipped = 0
+            for i, pkg_path in enumerate(good, 1):
+                label = labels[pkg_path]
+                stem = pkg_path.stem
+                with p3d_pkg.Pkg(str(pkg_path)) as pkg:
+                    pfs = pkg.pfs()
+                    # When the PFS keeps the ADDCONT folder itself, the files already live
+                    # under it; otherwise the PFS files are the add-on's payload and take
+                    # the label as their folder.
+                    under_label = all(rel.startswith(label + '/') for rel, _size in pfs.files)
+                    pfs_sub = stem if under_label else f'{stem}/{label}'
+                    unpacked, present = p3d_pkg.extract(
+                        pkg, dlc_dir, on_progress=self.unpack_progress(bar, percent,
+                                                                       f'{i}/{len(good)} {stem}'),
+                        resume=True, pfs_sub=pfs_sub, sc0_sub=f'{stem}/{label}/sce_sys')
+                written += unpacked
+                skipped += present
+            return written, skipped
+
+        def on_done(error, written, skipped):
+            self.unpack_finished(bar, percent, button, error, written, skipped, failures=failures,
+                                 into=str(dlc_dir))
+        self.run_unpack(bar, button, work, on_done)
 
     # ---- game process ------------------------------------------------------------------------
     def offer_system_files(self):
